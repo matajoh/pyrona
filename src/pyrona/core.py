@@ -1,12 +1,96 @@
 """Module providing the Region object."""
 
-from typing import Any, List, Mapping, Set, Union
+from collections import namedtuple
+from functools import partial
+import inspect
+from typing import Any, List, Mapping, NamedTuple, Set, Union
 import uuid
 
 
 class RegionIsolationError(Exception):
     """Error raised for issues related to region isolation."""
     pass
+
+
+class FreezeException(Exception):
+    """Error raised for issues related to region isolation."""
+    pass
+
+
+def _get_attr_as_item(self, name):
+    return getattr(self, name)
+
+
+class Freezer:
+    """Class providing methods for freezing objects."""
+
+    @staticmethod
+    def freeze_object(obj: object) -> NamedTuple:
+        """Freezes an object."""
+        members = [(name, value) for name, value in inspect.getmembers(obj)
+                   if not name.startswith("__")]
+        methods = [(name, value) for name, value in members if inspect.ismethod(value)]
+        data = [(name, value) for name, value in members if not inspect.ismethod(value)]
+        names = [name for name, _ in data]
+        frozen_name = "FrozenRegion" if isinstance(obj, Region.Root) else "Frozen" + obj.__class__.__name__
+        frozentype = namedtuple(frozen_name, names)
+        for name, value in methods:
+            setattr(frozentype, name, partial(value))
+
+        args = [Freezer.freeze_value(value) for _, value in data]
+        return frozentype(*args)
+
+    @staticmethod
+    def freeze_list(lst: list) -> tuple:
+        """Freezes all of the values in a list."""
+        return tuple([Freezer.freeze_value(x) for x in lst])
+
+    @staticmethod
+    def freeze_set(s: set) -> frozenset:
+        """Freezes all of the values in a set."""
+        return frozenset([Freezer.freeze_value(x) for x in s])
+
+    @staticmethod
+    def freeze_dict(d: dict) -> NamedTuple:
+        """Freezes all the values in a dictionary."""
+        names = list(d.keys())
+        frozentype = namedtuple("FrozenDict", names)
+        frozentype.__getitem__ = _get_attr_as_item
+        return frozentype(*[d[name] for name in names])
+
+    @staticmethod
+    def freeze_tuple(t: tuple) -> tuple:
+        """Freezes all the values in a tuple."""
+        return tuple([Freezer.freeze_value(x) for x in t])
+
+    @staticmethod
+    def freeze_value(value):
+        """Freezes a value, using an appropriate methodoloogy."""
+        if isinstance(value, RegionIsolatedObject):
+            value = value.__inner__
+
+        if is_imm(value):
+            return value
+
+        if isinstance(value, list):
+            return Freezer.freeze_list(value)
+
+        if isinstance(value, bytearray):
+            return bytes(value)
+
+        if isinstance(value, set):
+            return Freezer.freeze_set(value)
+
+        if isinstance(value, dict):
+            return Freezer.freeze_dict(value)
+
+        if isinstance(value, tuple):
+            return Freezer.freeze_tuple(value)
+
+        if isinstance(value, Region):
+            return value.freeze()
+
+        return Freezer.freeze_object(value)
 
 
 class RegionIsolatedObject:
@@ -77,6 +161,7 @@ class RegionIsolatedObject:
 
 
 _regions: Mapping[str, "Region"] = {}
+_stack: List[str] = []
 
 
 class Region:
@@ -114,10 +199,22 @@ class Region:
             obj.move(self)
             return
 
-        object.__setattr__(obj, "__region__", self.name)
-        for name in dir(obj):
-            if not name.startswith("__"):
-                self.capture(getattr(obj, name))
+        if isinstance(obj, (list, tuple)):
+            for item in obj:
+                self.capture(item)
+        elif isinstance(obj, dict):
+            for name in obj:
+                self.capture(obj[name])
+        elif isinstance(obj, Region):
+            if obj.is_free:
+                self.add_child(obj)
+            elif not self.owns(obj):
+                raise RegionIsolationError("Region already attached to a different region graph")
+        else:
+            object.__setattr__(obj, "__region__", self.name)
+            for name in dir(obj):
+                if not name.startswith("__"):
+                    self.capture(getattr(obj, name))
 
     def owns(self, other: "Region") -> bool:
         """Determines whether this region owns the other region."""
@@ -167,11 +264,19 @@ class Region:
 
     def __enter__(self):
         """Enter the region."""
+        if len(_stack) > 0:
+            if self.is_free:
+                _regions[_stack[-1]].add_child(self)
+            elif _stack[-1] != self.__region__:
+                raise RegionIsolationError("Invalid nesting: region already has a parent")
+
+        _stack.append(self.name)
         object.__setattr__(self, "is_open", True)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Exit the region."""
+        _stack.pop()
         object.__setattr__(self, "is_open", False)
 
     def __setattr__(self, attr_name, value):
@@ -211,6 +316,16 @@ class Region:
         object.__setattr__(other, "root", RegionIsolatedObject(other, Region.Root()))
         return merged
 
+    def freeze(self) -> NamedTuple:
+        """Freezes the data within an object, making it immutable and making the region empty and free."""
+        if self.is_open:
+            raise FreezeException("Region must be closed")
+
+        frozen = Freezer.freeze_object(self.root.__inner__)
+        object.__setattr__(self, "root", RegionIsolatedObject(self, Region.Root()))
+        object.__setattr__(self, "__region__", None)
+        return frozen
+
 
 def region(x: Any) -> Region:
     """Returns the region for an object."""
@@ -230,6 +345,7 @@ ImmutableBuiltins = (
     complex,
     str,
     bytes,
+    range,
 )
 
 
@@ -239,26 +355,12 @@ ImmutableSequences = (
 )
 
 
-def is_namedtuple_instance(x: Any) -> bool:
-    """Returns whether x is a likely result of calling namedtuple."""
-    t = type(x)
-    b = t.__bases__
-    if len(b) != 1 or b[0] != tuple:
-        return False
-
-    f = getattr(t, "_fields", None)
-    if not isinstance(f, tuple):
-        return False
-
-    return all(type(n) == str for n in f)
-
-
 def is_imm(x: Any) -> bool:
     """Returns whether x is an immutable object."""
     if isinstance(x, ImmutableBuiltins):
         return True
 
-    if isinstance(x, ImmutableSequences) or is_namedtuple_instance(x):
+    if isinstance(x, ImmutableSequences):
         return all(is_imm(y) for y in x)
 
     return False

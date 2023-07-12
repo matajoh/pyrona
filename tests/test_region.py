@@ -26,7 +26,7 @@ def test_shareable():
     assert r.is_shared
 
 
-def test_region_ownership():
+def test_ownership():
     r1 = pr.Region("r1")
     r2 = pr.Region("r2")
     r3 = pr.Region("r3")
@@ -40,7 +40,7 @@ def test_region_ownership():
             raise AssertionError
 
 
-def test_region_ownership_with_merging():
+def test_ownership_with_merging():
     r1 = pr.Region()
     r2 = pr.Region()
     with r1, r2:
@@ -56,7 +56,7 @@ def test_region_ownership_with_merging():
             raise AssertionError
 
 
-def test_region_merge():
+def test_merge():
     r1 = pr.Region()
     r2 = pr.Region()
     with r1:
@@ -76,3 +76,18 @@ def test_region_merge():
                 pass
             else:
                 raise AssertionError
+
+
+def test_nesting():
+    r1 = pr.Region()
+    r2 = pr.Region()
+    with r1:
+        r1.field = 1
+        with r2:
+            r2.field = 2
+
+    assert pr.region(r2) == r1
+
+    with r1:
+        with r2:
+            print(r2.field)
