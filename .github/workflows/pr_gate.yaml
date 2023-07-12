@@ -17,8 +17,8 @@ jobs:
         with:
           python-version: 3.8
 
-      - name: Install flake8
-        run: pip install -r requirements-flake8.txt
+      - name: Install the package
+        run: pip install -e .[linting]
 
       - name: Run flake8
         run: flake8 src/pyrona tests
