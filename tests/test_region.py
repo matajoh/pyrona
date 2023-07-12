@@ -1,11 +1,15 @@
 """Region tests."""
 
+import json
+
 import pyrona as pr
 
 
 class TestObject:
     """Basic object used for testing."""
-    pass
+    def __str__(self) -> str:
+        """Produces a simple representation of the object graph."""
+        return json.dumps(self.__dict__)
 
 
 def test_creation():
@@ -39,7 +43,7 @@ def test_region_ownership():
 def test_region_ownership_with_merging():
     r1 = pr.Region()
     r2 = pr.Region()
-    with (r1, r2):
+    with r1, r2:
         o1 = TestObject()      # free object
         o2 = TestObject()      # free object
         o1.f = o2              # o1 and o2 are in the same implicit region
@@ -50,3 +54,25 @@ def test_region_ownership_with_merging():
             pass
         else:
             raise AssertionError
+
+
+def test_region_merge():
+    r1 = pr.Region()
+    r2 = pr.Region()
+    with r1:
+        r1.o1 = TestObject()
+        r1.o1.field = "r1"
+        with r2:
+            r2.o2 = TestObject()
+            r2.o2.field = "r2"
+
+        r1.merge(r2)
+        print(r1.o2)
+
+        with r2:
+            try:
+                print(r2.o2)
+            except AttributeError:
+                pass
+            else:
+                raise AssertionError
