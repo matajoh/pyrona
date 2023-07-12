@@ -16,7 +16,7 @@ class RegionIsolatedObject:
         """Constructor."""
         object.__setattr__(self, "__region__", region)
         object.__setattr__(self, "__inner__", obj)
-        obj.__setattr__("__region__", region)
+        region.capture(obj)
 
     def can_assign(self, r: "Region") -> bool:
         """Determines whether this region can be assigned to this object."""
@@ -87,6 +87,16 @@ class Region:
         object.__setattr__(self, "root", root)
         object.__setattr__(self, "children", [])
 
+    def capture(self, obj: Any):
+        """Captures an object, placing it in the Region."""
+        if is_imm(obj):
+            return
+
+        object.__setattr__(obj, "__region__", self)
+        for name in dir(obj):
+            if not name.startswith("__"):
+                self.capture(getattr(obj, name))
+
     def owns(self, other: "Region") -> bool:
         """Determines whether this region owns the other region."""
         return any(other == child or child.owns(other)
@@ -98,6 +108,7 @@ class Region:
             raise RegionIsolationError("Region is not free")
 
         self.children.append(other)
+        object.__setattr__(other, "__region__", self)
 
     @property
     def is_shared(self) -> bool:
