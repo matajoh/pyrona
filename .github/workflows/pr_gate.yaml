@@ -21,7 +21,7 @@ jobs:
         run: pip install -r requirements-flake8.txt
 
       - name: Run flake8
-        run: flake8 src/scenepic test python_examples
+        run: flake8 src/pyrona tests
 
   linux:
     strategy:
@@ -41,7 +41,7 @@ jobs:
           architecture: x64
 
       - name: Install the package
-        run: pip install -e .
+        run: pip install -e .[test]
 
       - name: Run tests
         uses: pavelzw/pytest-action@v1
