@@ -26,7 +26,7 @@ jobs:
   linux:
     strategy:
       matrix:
-        python_version: ["3.8", "3.9", "3.10"]
+        python_version: ["3.8", "3.9", "3.10", "3.11"]
 
     runs-on: ubuntu-latest
 
@@ -49,3 +49,53 @@ jobs:
           verbose: true
           job_summary: true
           emoji: true
+
+  windows:
+    strategy:
+      matrix:
+        python_version: ["3.8", "3.9", "3.10", "3.11"]
+
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Use Python ${{matrix.python_version}}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{matrix.python_version}}
+          architecture: x64
+
+      - name: Install the package
+        run: pip install -e .[test]
+
+      - name: Run tests
+        uses: pavelzw/pytest-action@v1
+        with:
+          verbose: true
+          job_summary: true
+          emoji: true
+
+  macos:
+    strategy:
+      matrix:
+        python_version: ["3.8", "3.9", "3.10", "3.11"]
+
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Use Python ${{matrix.python_version}}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{matrix.python_version}}
+          architecture: x64
+
+      - name: Install the package
+        run: pip install -e .[test]
+
+      - name: Python test
+        run: pytest -vv --emoji

@@ -3,8 +3,18 @@
 from collections import namedtuple
 from functools import partial
 import inspect
+import random
+import string
 from typing import Any, List, Mapping, NamedTuple, Set, Union
 import uuid
+
+
+def _randomword(length: int, letters=string.ascii_lowercase) -> str:
+    return "".join(random.choices(letters, k=length))
+
+
+def _is_private(name: str) -> bool:
+    return name.startswith("_")
 
 
 class RegionIsolationError(Exception):
@@ -18,7 +28,7 @@ class FreezeException(Exception):
 
 
 def _get_attr_as_item(self, name):
-    return getattr(self, name)
+    return getattr(self, self.prefix + name)
 
 
 class Freezer:
@@ -28,7 +38,7 @@ class Freezer:
     def freeze_object(obj: object) -> NamedTuple:
         """Freezes an object."""
         members = [(name, value) for name, value in inspect.getmembers(obj)
-                   if not name.startswith("__")]
+                   if not _is_private(name)]
         methods = [(name, value) for name, value in members if inspect.ismethod(value)]
         data = [(name, value) for name, value in members if not inspect.ismethod(value)]
         names = [name for name, _ in data]
@@ -54,9 +64,14 @@ class Freezer:
     def freeze_dict(d: dict) -> NamedTuple:
         """Freezes all the values in a dictionary."""
         names = list(d.keys())
+        values = [d[name] for name in names]
+        prefix = _randomword(4)
+        names = [prefix + n for n in names]
+        names.append("prefix")
+        values.append(prefix)
         frozentype = namedtuple("FrozenDict", names)
         frozentype.__getitem__ = _get_attr_as_item
-        return frozentype(*[d[name] for name in names])
+        return frozentype(*values)
 
     @staticmethod
     def freeze_tuple(t: tuple) -> tuple:
@@ -93,14 +108,37 @@ class Freezer:
         return Freezer.freeze_object(value)
 
 
+def isolated(func):
+    """Decorator for isolated class methods."""
+    def _isolated(self, *args, **kwargs):
+        if region(self).is_closed:
+            raise RegionIsolationError("Region is closed")
+
+        return func(self, *args, **kwargs)
+
+    return _isolated
+
+
+def proxy(func):
+    """Decorator for methods which proxy to the inner class."""
+    def _proxy(self, *args, **kwargs):
+        if region(self).is_closed:
+            raise RegionIsolationError("Region is closed")
+
+        inner_func = getattr(self.__inner__, func.__name__)
+        return inner_func(*args, **kwargs)
+
+    return _proxy
+
+
 class RegionIsolatedObject:
     """An object in an explicitly created region."""
 
     def __init__(self, r: "Region", obj: Any):
         """Constructor."""
-        object.__setattr__(self, "__region__", r.name)
+        object.__setattr__(self, "__region__", identity(r))
         object.__setattr__(self, "__inner__", obj)
-        r.capture(obj)
+        r._capture(obj, False)
 
     def can_assign(self, r: "Region") -> bool:
         """Determines whether this region can be assigned to this object."""
@@ -109,16 +147,13 @@ class RegionIsolatedObject:
                 region(self).owns(r) or
                 (r.is_free and root_region(self) != r))
 
-    def move(self, r: "Region"):
+    def move(self, r: "Region") -> "RegionIsolatedObject":
         """Move this object to a new region."""
-        object.__setattr__(self, "__region__", r.name)
-        r.capture(self.__inner__)
+        object.__setattr__(self, "__region__", identity(r))
+        r._capture(self.__inner__, True)
+        return self
 
-    def __str__(self):
-        """Proxy."""
-        assert region(self).is_open
-        return self.__inner__.__str__()
-
+    @isolated
     def __setattr__(self, name: str, value: Any):
         """Sets an attribute of the inner object.
 
@@ -126,9 +161,6 @@ class RegionIsolatedObject:
         not open, or if the value being assigned belongs to a different
         region.
         """
-        if not region(self).is_open:
-            raise RegionIsolationError("Region is not open")
-
         if isinstance(value, Region):
             if self.can_assign(value):
                 region(self).add_child(value)
@@ -144,24 +176,154 @@ class RegionIsolatedObject:
 
         self.__inner__.__setattr__(name, value)
 
+    @isolated
     def __getattr__(self, name: str):
         """Gets an attribute of the inner object.
 
         This method will raise a RegionIsolationError if its region is
         not open.
         """
-        if not region(self).is_open:
-            raise RegionIsolationError("Region is not open")
+        if hasattr(self.__inner__, "__getattr__"):
+            value = self.__inner__.__getattr__(name)
+        else:
+            value = getattr(self.__inner__, name)
 
-        value = getattr(self.__inner__, name)
-        if is_imm(value) or isinstance(value, (Region, RegionIsolatedObject)):
+        if is_imm(value) or isinstance(value, (Region, RegionIsolatedObject)) or inspect.ismethod(value):
             return value
 
-        return RegionIsolatedObject(region(self), value)
+        value = RegionIsolatedObject(region(self), value)
+        try:
+            self.__inner__.__setattr__(name, value)
+        except Exception:
+            pass
+
+        return value
+
+    @proxy
+    def __str__(self):
+        """Proxy."""
+
+    @proxy
+    def __call__(self, *args, **kwargs):
+        """Proxy."""
+
+    # comparison proxies
+    @proxy
+    def __hash__(self):
+        """Proxy."""
+
+    @proxy
+    def __lt__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __le__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __eq__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __ne__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __gt__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __ge__(self, other):
+        """Proxy."""
+
+    # container-like proxies
+    @proxy
+    def __getitem__(self, key):
+        """Proxy."""
+
+    @proxy
+    def __len__(self):
+        """Proxy."""
+
+    @proxy
+    def __setitem__(self, key, value):
+        """Proxy."""
+
+    @proxy
+    def __delitem__(self, key):
+        """Proxy."""
+
+    @proxy
+    def __iter__(self):
+        """Proxy."""
+
+    @proxy
+    def __contains__(self, item):
+        """Proxy."""
+
+    # numeric-like proxies
+    @proxy
+    def __add__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __sub__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __mul__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __matmul__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __truediv__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __floordiv__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __mod__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __divmod__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __pow__(self, other, modulo=None):
+        """Proxy."""
+
+    @proxy
+    def __lshift__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __rshift__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __and__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __xor__(self, other):
+        """Proxy."""
+
+    @proxy
+    def __or__(self, other):
+        """Proxy."""
 
 
-_regions: Mapping[str, "Region"] = {}
-_stack: List[str] = []
+_regions: Mapping[int, "Region"] = {}
+
+_region_aliases: Mapping[int, int] = {}
+
+_counter = {"value": 0}
 
 
 class Region:
@@ -180,57 +342,81 @@ class Region:
             raise AttributeError("Region name must be unique ({} already exists)".format(name))
 
         object.__setattr__(self, "name", name)
-        _regions[self.name] = self
+        object.__setattr__(self, "alias", None)
+        object.__setattr__(self, "__identity__", _counter["value"])
+        _regions[_counter["value"]] = self
+        _counter["value"] += 1
 
         root = RegionIsolatedObject(self, Region.Root())
 
-        object.__setattr__(self, "is_open", False)
+        object.__setattr__(self, "is_open_", False)
         object.__setattr__(self, "is_shared_", False)
         object.__setattr__(self, "__region__", None)
         object.__setattr__(self, "root", root)
         object.__setattr__(self, "children", [])
 
-    def capture(self, obj: Any):
+    def _capture(self, obj: Any, overwrite: bool):
         """Captures an object, placing it in the Region."""
-        if is_imm(obj):
+        if self.alias:
+            self.alias._capture(obj, overwrite)
+
+        if is_imm(obj) or region(obj) == self:
             return
+
+        if region(obj) is not None and not overwrite:
+            raise RegionIsolationError("Object is already in another region")
 
         if isinstance(obj, RegionIsolatedObject):
             obj.move(self)
             return
 
-        if isinstance(obj, (list, tuple)):
+        if isinstance(obj, (list, tuple, set)):
             for item in obj:
-                self.capture(item)
+                self._capture(item, overwrite)
         elif isinstance(obj, dict):
             for name in obj:
-                self.capture(obj[name])
+                self._capture(obj[name], overwrite)
         elif isinstance(obj, Region):
             if obj.is_free:
                 self.add_child(obj)
             elif not self.owns(obj):
                 raise RegionIsolationError("Region already attached to a different region graph")
         else:
-            object.__setattr__(obj, "__region__", self.name)
-            for name in dir(obj):
-                if not name.startswith("__"):
-                    self.capture(getattr(obj, name))
+            object.__setattr__(obj, "__region__", identity(self))
+            if region(obj) != self:
+                # this object cannot be captured, bail for now
+                return
+
+            for name in obj.__dict__:
+                if not _is_private(name):
+                    value = getattr(obj, name)
+                    if not inspect.ismethod(value):
+                        self._capture(value, overwrite)
 
     def owns(self, other: "Region") -> bool:
         """Determines whether this region owns the other region."""
+        if self.alias:
+            self.alias.owns(other)
+
         return any(other == child or child.owns(other)
                    for child in self.children)
 
     def add_child(self, other: "Region"):
         """Adds the other region as a child of this region."""
+        if self.alias:
+            self.alias.add_child(other)
+
         if not other.is_free:
             raise RegionIsolationError("Region is not free")
 
         self.children.append(other)
-        object.__setattr__(other, "__region__", self.name)
+        object.__setattr__(other, "__region__", identity(self))
 
     def remove_child(self, other: "Region"):
         """Removes the other region."""
+        if self.alias:
+            self.alias.remove_child(other)
+
         if region(other) != self:
             raise RegionIsolationError("Region is not a child of this region")
 
@@ -240,51 +426,112 @@ class Region:
     @property
     def is_shared(self) -> bool:
         """Whether this region is shareable."""
+        if self.alias:
+            return self.alias.is_shared
+
         return self.is_shared_
+
+    @property
+    def is_private(self) -> bool:
+        """Whether this region is private."""
+        if self.alias:
+            return self.alias.is_private
+
+        return not self.is_shared_
+
+    def _share(self):
+        object.__setattr__(self, "is_shared_", True)
+
+    def _unshare(self):
+        object.__setattr__(self, "is_shared_", False)
+
+    @property
+    def is_open(self) -> bool:
+        """Whether this region is currently open."""
+        if self.alias:
+            return self.alias.is_open
+
+        return self.is_open_
+
+    @property
+    def is_closed(self) -> bool:
+        """Whether this region is closed."""
+        if self.alias:
+            return self.alias.is_close
+
+        return not self.is_open_
+
+    def _open(self):
+        object.__setattr__(self, "is_open_", True)
+
+    def _close(self):
+        object.__setattr__(self, "is_open_", False)
 
     @property
     def is_free(self) -> bool:
         """Whether this is a free region."""
         return region(self) is None
 
-    def make_shareable(self):
+    def make_shareable(self) -> "Region":
         """Makes the region shareable."""
+        from threading import Lock
+        if self.alias:
+            self.alias.make_shareable()
+
+        object.__setattr__(self, "last", None)
+        object.__setattr__(self, "lock", Lock())
         object.__setattr__(self, "is_shared_", True)
+        return self
+
+    def __repr__(self) -> str:
+        """Returns the region representation."""
+        return "Region({})".format(self.name)
 
     def __hash__(self) -> int:
-        """Hash function based on the region name."""
-        return hash(self.name)
+        """Hash function based on the region identity."""
+        return identity(self)
 
     def __eq__(self, other: "Region") -> bool:
-        """Equality based upon the region name."""
+        """Equality based upon the region identity."""
         if isinstance(other, Region):
-            return self.name == other.name
+            return identity(self) == identity(other)
 
         return False
 
+    def __lt__(self, other: "Region") -> bool:
+        """Comparison based upon the region identity."""
+        return identity(self) < identity(other)
+
     def __enter__(self):
         """Enter the region."""
-        if len(_stack) > 0:
-            if self.is_free:
-                _regions[_stack[-1]].add_child(self)
-            elif _stack[-1] != self.__region__:
-                raise RegionIsolationError("Invalid nesting: region already has a parent")
+        if self.alias:
+            return self.alias.__enter__()
 
-        _stack.append(self.name)
-        object.__setattr__(self, "is_open", True)
+        if self.is_shared:
+            raise RegionIsolationError("Region is not private")
+
+        self._open()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Exit the region."""
-        _stack.pop()
-        object.__setattr__(self, "is_open", False)
+        if self.alias:
+            self.alias.__exit__(exc_type, exc_value, traceback)
+
+        self._close()
 
     def __setattr__(self, attr_name, value):
         """Set an attribute of the region object."""
+        if self.alias:
+            self.alias.__setattr__(attr_name, value)
+
         self.root.__setattr__(attr_name, value)
 
     def __getattr__(self, attr_name):
         """Get an attribute of the region object."""
+        if self.alias:
+            return self.alias.__getattr__(attr_name)
+
         return getattr(self.root, attr_name)
 
     def merge(self, other: "Region") -> List[Union["Region", RegionIsolatedObject]]:
@@ -294,30 +541,28 @@ class Region:
         The end result is that all objects and regions in the other region
         will be in this one, and the other region will be empty.
         """
-        if not self.is_open:
+        if self.alias:
+            return self.alias.merge(other)
+
+        if self.is_closed:
             raise RegionIsolationError("Region is not open")
 
-        merged = []
-        for name in dir(other.root.__inner__):
-            if name.startswith("__") and name.endswith("__"):
-                continue
+        if not self.is_free:
+            raise RegionIsolationError("Region is not free")
 
-            value = getattr(other.__inner__, name)
-            if isinstance(value, RegionIsolatedObject):
-                value.move(self)
-                merged.append(value)
-                object.__setattr__(self.root, name, value)
-            elif isinstance(value, Region):
-                other.remove_child(value)
-                self.add_child(value)
-                merged.append(value)
-                object.__setattr__(self.root, name, value)
-
-        object.__setattr__(other, "root", RegionIsolatedObject(other, Region.Root()))
+        _region_aliases[identity(other)] = identity(self)
+        merged = other.root.move(self)
+        setattr(self.root, _randomword(8), merged)
+        object.__setattr__(other, "alias", self)
         return merged
 
     def freeze(self) -> NamedTuple:
-        """Freezes the data within an object, making it immutable and making the region empty and free."""
+        """Freezes the data within an object.
+
+        This operation returns an immutable object containing the data
+        and methods of the objects stored in the region. It leaves the
+        region empty and free.
+        """
         if self.is_open:
             raise FreezeException("Region must be closed")
 
@@ -326,10 +571,48 @@ class Region:
         object.__setattr__(self, "__region__", None)
         return frozen
 
+    def detach_all(self, name: str = None) -> "Region":
+        """Detaches all objects from this region.
+
+        The objects are returned as a new private Region, and this region
+        is emptied out.
+        """
+        if self.is_closed:
+            raise RegionIsolationError("Region must be open")
+
+        if self.is_private:
+            raise RegionIsolationError("Region must be shared")
+
+        r = Region(name)
+        root = self.root.move(r)
+        object.__setattr__(r, "root", root)
+        object.__setattr__(self, "root", RegionIsolatedObject(self, Region.Root()))
+        return r
+
+
+def identity(r: Region) -> int:
+    """Returns the identity for an object."""
+    if isinstance(r, Region):
+        return r.__identity__
+
+    raise TypeError
+
 
 def region(x: Any) -> Region:
     """Returns the region for an object."""
-    return _regions.get(getattr(x, "__region__", None), None)
+    identity = getattr(x, "__region__", None)
+    if identity is None:
+        return None
+
+    if identity in _region_aliases:
+        parent = _region_aliases[identity]
+        if parent in _region_aliases:
+            _region_aliases[identity] = _region_aliases[parent]
+
+    while identity in _region_aliases:
+        identity = _region_aliases[identity]
+
+    return _regions.get(identity, None)
 
 
 def regions(*args) -> Set[Region]:
