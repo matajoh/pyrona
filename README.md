@@ -7,7 +7,7 @@ to the PEP for details on the theory and concepts demonstrated here.
 ## Getting Started
 
 We suggest you begin by cloning the repository and then creating a virtual
-environment into which to instal the package and its dependencies. For Linux,
+environment into which to install the package and its dependencies. For Linux,
 that will look something like this:
 
     python3 -m venv .env
