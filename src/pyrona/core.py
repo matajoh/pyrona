@@ -9,7 +9,7 @@ from typing import Any, List, Mapping, NamedTuple, Set, Union
 import uuid
 
 
-def _randomword(length: int, letters=string.ascii_lowercase) -> str:
+def _random_word(length: int, letters=string.ascii_lowercase) -> str:
     return "".join(random.choices(letters, k=length))
 
 
@@ -43,12 +43,12 @@ class Freezer:
         data = [(name, value) for name, value in members if not inspect.ismethod(value)]
         names = [name for name, _ in data]
         frozen_name = "FrozenRegion" if isinstance(obj, Region.Root) else "Frozen" + obj.__class__.__name__
-        frozentype = namedtuple(frozen_name, names)
+        frozen_type = namedtuple(frozen_name, names)
         for name, value in methods:
-            setattr(frozentype, name, partial(value))
+            setattr(frozen_type, name, partial(value))
 
         args = [Freezer.freeze_value(value) for _, value in data]
-        return frozentype(*args)
+        return frozen_type(*args)
 
     @staticmethod
     def freeze_list(lst: list) -> tuple:
@@ -65,13 +65,13 @@ class Freezer:
         """Freezes all the values in a dictionary."""
         names = list(d.keys())
         values = [d[name] for name in names]
-        prefix = _randomword(4)
+        prefix = _random_word(4)
         names = [prefix + n for n in names]
         names.append("prefix")
         values.append(prefix)
-        frozentype = namedtuple("FrozenDict", names)
-        frozentype.__getitem__ = _get_attr_as_item
-        return frozentype(*values)
+        frozen_type = namedtuple("FrozenDict", names)
+        frozen_type.__getitem__ = _get_attr_as_item
+        return frozen_type(*values)
 
     @staticmethod
     def freeze_tuple(t: tuple) -> tuple:
@@ -80,7 +80,7 @@ class Freezer:
 
     @staticmethod
     def freeze_value(value):
-        """Freezes a value, using an appropriate methodoloogy."""
+        """Freezes a value, using an appropriate methodology."""
         if isinstance(value, RegionIsolatedObject):
             value = value.__inner__
 
@@ -552,7 +552,7 @@ class Region:
 
         _region_aliases[identity(other)] = identity(self)
         merged = other.root.move(self)
-        setattr(self.root, _randomword(8), merged)
+        setattr(self.root, _random_word(8), merged)
         object.__setattr__(other, "alias", self)
         return merged
 

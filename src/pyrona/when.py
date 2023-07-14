@@ -59,7 +59,7 @@ class _Terminator:
 
 
 class _Behavior:
-    """Behaviour that captures the content of a when body.
+    """Behavior that captures the content of a when body.
 
     It contains all the state required to run the body, and release the
     cowns when the body has finished.
@@ -109,7 +109,7 @@ class _Behavior:
         _terminator.decrement()
 
     def resolve_one(self):
-        """Resolves a single outstanding request for this behaviour.
+        """Resolves a single outstanding request for this behavior.
 
         Called when a request is at the head of the queue for a particular cown.
         If this is the last request, then the thunk is scheduled.
@@ -144,12 +144,12 @@ class _Request:
             self.next = behavior
 
     def release(self):
-        """Release the cown to the next behaviour.
+        """Release the cown to the next behavior.
 
-        This is called when the associated behaviour has completed, and thus can
-        allow any waiting behaviour to run.
+        This is called when the associated behavior has completed, and thus can
+        allow any waiting behavior to run.
 
-        If there is no next behaviour, then the cown's `last` pointer is set to null.
+        If there is no next behavior, then the cown's `last` pointer is set to null.
         """
         # This code is effectively a MCS-style queue lock release.
         with self.next_lock:
@@ -171,7 +171,7 @@ class _Request:
         """Start the first phase of the 2PL enqueue operation.
 
         This enqueues the request onto the cown.  It will only return
-        once any previous behaviour on this cown has finished enqueueing
+        once any previous behavior on this cown has finished enqueueing
         on all its required cowns.  This ensures that the 2PL is obeyed.
         """
         prev = self.target.exchange(self)
@@ -187,7 +187,7 @@ class _Request:
     def finish_enqueue(self):
         """Finish the second phase of the 2PL enqueue operation.
 
-        This will set the scheduled flag, so subsequent behaviours on this
+        This will set the scheduled flag, so subsequent behaviors on this
         cown can continue the 2PL enqueue.
         """
         with self.scheduled_lock:
