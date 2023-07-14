@@ -97,9 +97,5 @@ jobs:
       - name: Install the package
         run: pip install -e .[test]
 
-      - name: Run tests
-        uses: pavelzw/pytest-action@v1
-        with:
-          verbose: true
-          job_summary: true
-          emoji: true
+      - name: Python test
+        run: pytest -vv --emoji
