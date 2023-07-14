@@ -120,8 +120,8 @@ class _Behavior:
                 return
 
         # Last request so schedule the task.
-        self.thread = Thread(target=self)
-        self.thread.start()
+        thread = Thread(target=self)
+        thread.start()
 
 
 class _Request:
