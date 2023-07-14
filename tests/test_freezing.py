@@ -1,6 +1,6 @@
 """Tests for the freezing functionality."""
 
-import pyrona as pr
+from pyrona import is_imm, Region
 
 
 class MockObject:
@@ -24,15 +24,15 @@ class MockObject:
 
 
 def test_freezing():
-    r2 = pr.Region()
-    r3 = pr.Region()
+    r2 = Region()
+    r3 = Region()
     with r2:
         r2.field = [47, r3]
         with r3:
             r3.field = 11
 
     x = r2.freeze()
-    assert pr.is_imm(x)
+    assert is_imm(x)
     assert r2.is_free
     assert r3.is_free
 
@@ -56,7 +56,7 @@ def test_freezing():
 
 
 def test_frozen_list():
-    r = pr.Region()
+    r = Region()
     with r:
         r.a = [0, "two", None, True]
 
@@ -69,7 +69,7 @@ def test_frozen_list():
 
 
 def test_frozen_dict():
-    r = pr.Region()
+    r = Region()
     with r:
         r.a = {
             "one": 1,
@@ -87,7 +87,7 @@ def test_frozen_dict():
 
 
 def test_frozen_set():
-    r = pr.Region()
+    r = Region()
     with r:
         r.a = set([0, 1, 2, 2, 3, 3, 3])
 
@@ -98,7 +98,7 @@ def test_frozen_set():
 
 
 def test_frozen_tuple():
-    r = pr.Region()
+    r = Region()
     with r:
         r.a = tuple([0, "two", None, True])
 
@@ -116,7 +116,7 @@ def test_frozen_object():
     a.c = [0, b, (2, b), {"3": b}]
     a.d = tuple(a.c)
     a.e = set(a.c[:3])
-    r = pr.Region()
+    r = Region()
     with r:
         r.a = a
         r.a.b = b

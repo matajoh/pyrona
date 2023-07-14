@@ -604,6 +604,11 @@ def region(x: Any) -> Region:
     if identity is None:
         return None
 
+    if identity in _region_aliases:
+        parent = _region_aliases[identity]
+        if parent in _region_aliases:
+            _region_aliases[identity] = _region_aliases[parent]
+
     while identity in _region_aliases:
         identity = _region_aliases[identity]
 

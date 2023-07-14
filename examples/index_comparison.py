@@ -1,10 +1,14 @@
-"""Example demonstrating real-time comparison of stock prices."""
+"""Index comparison example.
+
+Example comparing the price of an equally-weighted set of technology companies
+to the S&P 500 over the last month.
+"""
 
 import functools
 
 import pandas as pd
 from pyrate_limiter import Duration, Limiter, RequestRate
-import pyrona as pr
+from pyrona import Region, wait, when
 from requests import Session
 import requests_cache
 from requests_cache import CacheMixin, SQLiteCache
@@ -58,46 +62,57 @@ def _main():
     session = requests_cache.CachedSession("yfinance.cache")
     session.headers["User-agent"] = "my-program/1.0"
 
-    msft_r = pr.Region("msft").make_shareable()
-    aapl_r = pr.Region("aapl").make_shareable()
-    amzn_r = pr.Region("amzn").make_shareable()
+    msft_r = Region("msft").make_shareable()
+    aapl_r = Region("aapl").make_shareable()
+    amzn_r = Region("amzn").make_shareable()
 
     # when msft_r as m:
-    @pr.when(msft_r)
+    @when(msft_r)
     def _(m):
-        m.price = _msft(session)
+        m.price = _msft(session)  # add the DataFrame to the region
 
     # when aapl_r as m:
-    @pr.when(aapl_r)
+    @when(aapl_r)
     def _(m):
-        m.price = _aapl(session)
+        m.price = _aapl(session)  # add the DataFrame to the region
 
     # when amzn_r as m:
-    @pr.when(amzn_r)
+    @when(amzn_r)
     def _(m):
-        m.price = _amzn(session)
+        m.price = _amzn(session)  # add the DataFrame to the region
 
-    big_tech_r = pr.Region("big_tech").make_shareable()
+    big_tech_r = Region("big_tech").make_shareable()
+
+    # as the following when was declared after the statements above, but
+    # uses the same regions, it is guaranteed to be executed
+    # after the above statements.
 
     # when big_tech_r, msft_r, aapl_r, amzn_r as b, m, a, z:
-    @pr.when(big_tech_r, msft_r, aapl_r, amzn_r)
+    @when(big_tech_r, msft_r, aapl_r, amzn_r)
     def _(b, m, a, z):
         b.price = _aggregate_price(m.price, a.price, z.price)
 
-    spy_r = pr.Region("spy").make_shareable()
+    spy_r = Region("spy").make_shareable()
 
     # when spy_r as s:
-    @pr.when(spy_r)
+    @when(spy_r)
     def _(s):
+        # as this behavior only uses the spy_r region, it may run
+        # concurrently with the above statements.
         s.price = _spy(session)["Open"]
 
     # when big_tech_r, spy_r as b, s:
-    @pr.when(big_tech_r, spy_r)
+    @when(big_tech_r, spy_r)
     def _(b, s):
+        # this behavior uses the big_tech_r and spy_r regions, and so it
+        # will execute only after all the other behaviors have run.
         adj = _adjust(b.price, s.price)
         print(adj)
 
 
 if __name__ == "__main__":
     _main()
-    pr.wait()
+    # as the underlying implementation is just a simulation built using the
+    # threading library, we need to wait for all the threads to finish before
+    # exiting.
+    wait()

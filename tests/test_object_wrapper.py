@@ -2,11 +2,11 @@
 
 from typing import Callable
 
-import pyrona as pr
+from pyrona import Region, RegionIsolationError
 
 
 def test_container():
-    r = pr.Region()
+    r = Region()
     with r:
         r.a = [0, 1, 2, 3]
         print(len(r.a))
@@ -55,7 +55,7 @@ class MockNumeric:
 
 
 def test_maths():
-    r = pr.Region()
+    r = Region()
     a = MockNumeric(0, 1, 2)
     b = MockNumeric(3, 4, 5)
     e_add = a + b
@@ -72,7 +72,7 @@ def test_maths():
 
     try:
         print(x + a)
-    except pr.RegionIsolationError:
+    except RegionIsolationError:
         pass
     else:
         raise AssertionError
