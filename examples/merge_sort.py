@@ -1,6 +1,7 @@
 """Example showing merge sort using BoC."""
 
 import random
+from time import sleep
 
 from pyrona import Region, wait, when
 
@@ -13,12 +14,17 @@ def _sort_section(source: tuple, start: int, end: int, output: Region):
         return
 
     if end - start + 1 <= Threshold:
+        print("sorting", start, end)
         # below a threshold, we use the built-in sort function
         values = list(sorted(source[start:end + 1]))
 
         # when output:
         @when(output)
         def _():
+            print("copying", start, end)
+            # we add a random sleep to make the concurrency a bit
+            # more interesting
+            sleep(random.random() / 10)
             output.values[start:end + 1] = values
 
         return
@@ -30,6 +36,11 @@ def _sort_section(source: tuple, start: int, end: int, output: Region):
     # when output:
     @when(output)
     def _():
+        print("merging", start, end)
+        # we add a random sleep to make the concurrency a bit
+        # more interesting
+        sleep(random.random() / 10)
+
         # merge in place
         i = start
         j = mid + 1
