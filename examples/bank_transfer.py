@@ -25,27 +25,40 @@ def _main():
     r1.make_shareable()
     r2.make_shareable()
 
-    name = "Alice"
+    from_acct = "Alice"
+    to_acct = "Bob"
 
     # when r1:
     @when(r1)  # when I have exclusive access to r1...
     def _():
-        print("name: ", r1.accounts[name].balance)
+        print(from_acct, "=", r1.accounts[from_acct].balance)
+
+    # when r1:
+    @when(r2)  # when I have exclusive access to r2...
+    def _():
+        print(to_acct, "=", r2.accounts[to_acct].balance)
 
     # when r1, r2:
     @when(r1, r2)
     def _():
-        r1.accounts[name].balance -= 100
-        r2.accounts["Bob"].balance += 100
+        r1.accounts[from_acct].balance -= 100
+        r2.accounts[to_acct].balance += 100
 
         @when()  # whenever
         def _():
-            print(f"Transfer 100: {name}->Bob")
+            print(f"Transfer 100: {from_acct}->{to_acct}")
 
     # when r2:
     @when(r2)  # when I have exclusive access to r2...
     def _():
-        print(r2.accounts["Bob"].balance)  # guaranteed to see the transfer
+        # guaranteed to see the transfer
+        print(to_acct, "=", r2.accounts[to_acct].balance)
+
+    # when r1:
+    @when(r1)
+    def _():
+        # guaranteed to see the transfer
+        print(from_acct, "=", r1.accounts[from_acct].balance)
 
 
 if __name__ == "__main__":
