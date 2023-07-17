@@ -210,6 +210,10 @@ def _safe_run(func):
 
 def when(*regions: Region):
     """Returns a decorator which opens all the regions before calling the function."""
+    for r in regions:
+        if not r.is_shared:
+            raise RegionIsolationError("Region is private.")
+
     def when_factory(func):
         @wraps(func)
         def when_():
@@ -218,6 +222,7 @@ def when(*regions: Region):
                     r._open()
                 else:
                     raise RegionIsolationError("Region is private.")
+
             if func.__code__.co_argcount > 0:
                 value = func(*regions)
             else:
