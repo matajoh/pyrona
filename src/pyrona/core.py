@@ -5,6 +5,7 @@ from functools import partial
 import inspect
 import random
 import string
+from threading import Lock, get_ident
 from typing import Any, List, Mapping, NamedTuple, Set, Union
 import uuid
 
@@ -349,7 +350,7 @@ class Region:
 
         root = RegionIsolatedObject(self, Region.Root())
 
-        object.__setattr__(self, "is_open_", False)
+        object.__setattr__(self, "is_open_", None)
         object.__setattr__(self, "is_shared_", False)
         object.__setattr__(self, "__region__", None)
         object.__setattr__(self, "root", root)
@@ -451,7 +452,7 @@ class Region:
         if self.alias:
             return self.alias.is_open
 
-        return self.is_open_
+        return get_ident() == self.is_open_
 
     @property
     def is_closed(self) -> bool:
@@ -459,13 +460,13 @@ class Region:
         if self.alias:
             return self.alias.is_close
 
-        return not self.is_open_
+        return get_ident() != self.is_open_
 
     def _open(self):
-        object.__setattr__(self, "is_open_", True)
+        object.__setattr__(self, "is_open_", get_ident())
 
     def _close(self):
-        object.__setattr__(self, "is_open_", False)
+        object.__setattr__(self, "is_open_", None)
 
     @property
     def is_free(self) -> bool:
@@ -474,7 +475,6 @@ class Region:
 
     def make_shareable(self) -> "Region":
         """Makes the region shareable."""
-        from threading import Lock
         if self.alias:
             self.alias.make_shareable()
 
@@ -498,6 +498,12 @@ class Region:
 
         return False
 
+    def _can_open(self) -> bool:
+        if self.is_open or self.is_free:
+            return True
+
+        return region(self)._can_open()
+
     def __lt__(self, other: "Region") -> bool:
         """Comparison based upon the region identity."""
         return identity(self) < identity(other)
@@ -510,7 +516,11 @@ class Region:
         if self.is_shared:
             raise RegionIsolationError("Region is not private")
 
-        self._open()
+        if self._can_open():
+            self._open()
+        else:
+            raise RegionIsolationError("Region is cannot be opened")
+
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):

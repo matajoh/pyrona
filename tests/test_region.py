@@ -23,6 +23,48 @@ def test_creation():
 
 
 def test_ownership():
+    r1 = Region("Bank1")
+    r2 = Region("Bank2")
+    with r1, r2:
+        r1.accounts = {"Alice": 1000}
+        try:
+            r2.accounts = r1.accounts
+        except RegionIsolationError:
+            # ownership exception
+            pass
+        else:
+            raise AssertionError
+
+
+def test_isolation():
+    r1 = Region("Bank1")
+    x = None
+    with r1:
+        r1.accounts = {"Alice": 1000}
+        x = r1.accounts
+
+    try:
+        print(x["Alice"].balance)
+    except RegionIsolationError:
+        # the region not open
+        pass
+    else:
+        raise AssertionError
+
+
+def test_with_shared():
+    r1 = Region("Bank1").make_shareable()
+    try:
+        with r1:
+            r1.accounts = {"Alice": 1000}
+    except RegionIsolationError:
+        # shared region needs when
+        pass
+    else:
+        raise AssertionError
+
+
+def test_region_ownership():
     r1 = Region("r1")
     r2 = Region("r2")
     r3 = Region("r3")

@@ -1,6 +1,15 @@
 """Tests for when constructors."""
 
-from pyrona import Region, wait, when
+import json
+
+from pyrona import Region, RegionIsolationError, wait, when
+
+
+class MockObject:
+    """Mock object used for testing."""
+    def __str__(self) -> str:
+        """Produces a simple representation of the object graph."""
+        return json.dumps(self.__dict__)
 
 
 def test_shareable():
@@ -58,5 +67,46 @@ def test_detach():
     def _():
         assert c1.b == "bar"
         assert c2.a == "foo"
+
+    wait()
+
+
+def test_when_private():
+    r1 = Region("Bank1")
+    r2 = Region("Bank2")
+
+    try:
+        # when r1
+        @when(r1)
+        def _():
+            r1.nested_bank = r2
+    except RegionIsolationError:
+        # private region needs with
+        pass
+    else:
+        raise AssertionError
+
+
+def test_nested():
+    r1 = Region("Bank1")
+    r2 = Region("Bank2")
+    r3 = Region("Bank3")
+
+    with r1:
+        r1.nested_bank = r2
+
+    r1.make_shareable()
+
+    # when r1:
+    @when(r1)
+    def _():
+        r1.other_nested_bank = r3  # ok — r3 is free, r1 acquired
+        try:
+            r2.field = MockObject()
+        except RegionIsolationError:
+            # not ok — r2 neither free nor acquired
+            pass
+        else:
+            raise AssertionError
 
     wait()
