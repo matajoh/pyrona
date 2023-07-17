@@ -69,17 +69,23 @@ def _main():
     # when msft_r as m:
     @when(msft_r)
     def _(m):
+        print("begin msft")
         m.price = _msft(session)  # add the DataFrame to the region
+        print("end msft")
 
     # when aapl_r as m:
     @when(aapl_r)
     def _(m):
+        print("begin aapl")
         m.price = _aapl(session)  # add the DataFrame to the region
+        print("end aapl")
 
     # when amzn_r as m:
     @when(amzn_r)
     def _(m):
+        print("begin amzn")
         m.price = _amzn(session)  # add the DataFrame to the region
+        print("end amzn")
 
     big_tech_r = Region("big_tech").make_shareable()
 
@@ -90,6 +96,7 @@ def _main():
     # when big_tech_r, msft_r, aapl_r, amzn_r as b, m, a, z:
     @when(big_tech_r, msft_r, aapl_r, amzn_r)
     def _(b, m, a, z):
+        print("aggregating prices")
         b.price = _aggregate_price(m.price, a.price, z.price)
 
     spy_r = Region("spy").make_shareable()
@@ -99,6 +106,7 @@ def _main():
     def _(s):
         # as this behavior only uses the spy_r region, it may run
         # concurrently with the above statements.
+        print("getting s&p prices")
         s.price = _spy(session)["Open"]
 
     # when big_tech_r, spy_r as b, s:
@@ -106,6 +114,7 @@ def _main():
     def _(b, s):
         # this behavior uses the big_tech_r and spy_r regions, and so it
         # will execute only after all the other behaviors have run.
+        print("adjusting prices")
         adj = _adjust(b.price, s.price)
         print(adj)
 
