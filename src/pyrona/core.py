@@ -519,7 +519,7 @@ class Region:
         if self._can_open():
             self._open()
         else:
-            raise RegionIsolationError("Region is cannot be opened")
+            raise RegionIsolationError("Region cannot be opened")
 
         return self
 
