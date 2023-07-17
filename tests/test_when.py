@@ -86,6 +86,8 @@ def test_when_private():
     else:
         raise AssertionError
 
+    wait()
+
 
 def test_nested():
     r1 = Region("Bank1")
