@@ -5,7 +5,7 @@ from functools import partial
 import inspect
 import random
 import string
-from threading import Lock, get_ident
+from threading import get_ident, Lock
 from typing import Any, List, Mapping, NamedTuple, Set, Union
 import uuid
 
