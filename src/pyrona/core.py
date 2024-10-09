@@ -1,6 +1,7 @@
 """Module providing the Region object."""
 
 from collections import namedtuple
+from enum import Enum, IntEnum
 from functools import partial
 import inspect
 import random
@@ -633,6 +634,8 @@ def regions(*args) -> Set[Region]:
 ImmutableBuiltins = (
     type(None),
     bool,
+    Enum,
+    IntEnum,
     int,
     float,
     complex,
