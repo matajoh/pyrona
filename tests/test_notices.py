@@ -1,10 +1,15 @@
 """Tests for the noticeboard."""
 
+import random
+from threading import Event
+from time import sleep
+
 from pyrona import (
     notice_compare_exchange,
     notice_exchange,
     notice_read,
     notice_register,
+    Region,
     wait,
     when
 )
@@ -96,3 +101,42 @@ def test_exists():
         pass
     else:
         raise AssertionError("Expected KeyError.")
+
+
+def test_write_once():
+    notice_register(["foo"])
+
+    count = 0
+
+    event = Event()
+
+    def callback():
+        nonlocal count
+        count += 1
+        event.set()
+
+    output = Region()
+    with output:
+        output.callback = callback
+
+    output.make_shareable()
+
+    for i in range(10):
+        r = Region()
+        with r:
+            r.i = i
+
+        r.make_shareable()
+
+        @when(r)
+        def _(r):
+            sleep(random.random())
+            if notice_exchange("foo", r.i) is None:
+                @when(output)
+                def _():
+                    output.callback()
+
+    wait()
+
+    event.wait()
+    assert count == 1

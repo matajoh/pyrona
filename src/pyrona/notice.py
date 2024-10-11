@@ -108,7 +108,7 @@ class NoticeBoard:
         if key not in self.notices:
             raise KeyError(f"Notice '{key}' not found.")
 
-        self.notices[key].exchange(value)
+        return self.notices[key].exchange(value)
 
     def compare_exchange(self, key: str, value: Any, comparand: Any) -> Any:
         """Compare and exchange the value of a notice.
