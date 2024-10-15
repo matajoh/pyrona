@@ -5,107 +5,82 @@ from threading import Event
 from time import sleep
 
 from pyrona import (
-    notice_compare_exchange,
-    notice_exchange,
+    notice_changed,
+    notice_clear,
     notice_read,
-    notice_register,
+    notice_write,
     Region,
     wait,
     when
 )
 
 
-def test_io():
-    notice_register(["foo", "bar"])
-    notice_exchange("foo", 42)
-    assert notice_read("foo") == 42
-    notice_exchange("bar", "baz")
-    assert notice_read("bar") == "baz"
-
-
-def test_counting():
-    notice_register(["count"])
-    notice_exchange("count", 0)
-
-    for _ in range(10):
-        @when()
-        def _():
-            value = notice_read("count")
-            while True:
-                if value == notice_compare_exchange("count", value + 1, value):
-                    break
+def test_caching():
+    notice_clear()
 
     @when()
     def _():
-        assert notice_read("count") == 10
+        assert notice_read("foo") is None
+
+        notice_write("foo", 42)
+        assert notice_read("foo") is None
+
+        for i in range(10):
+            r = Region()
+            with r:
+                r.value = i
+
+            r.make_shareable()
+
+            @when(r)
+            def _(r):
+                notice_write("foo", r.value)
+
+        sleep(0.5)
+        assert notice_read("foo") is None
+
+    def check_for_value(value):
+        assert value is not None
+
+    notice_changed("foo", check_for_value)
 
     wait()
 
 
-def test_ordering():
-    notice_register(["foo", "bar"])
-    notice_exchange("foo", 42)
-    notice_exchange("bar", 24)
+def test_conditions():
+    notice_clear()
+    notice_write("count", 0)
+    for i in range(10):
+        r = Region()
+        with r:
+            r.value = i
 
-    for _ in range(10):
-        @when()
-        def _():
-            assert notice_read("foo") == 42
-            assert notice_read("bar") == 24
+        r.make_shareable()
 
-    @when()
-    def _():
-        notice_exchange("foo", 24)
-        notice_exchange("bar", 42)
+        @when(r)
+        def _(r):
+            notice_write("count", r.value, lambda a, b: a is None or a < b)
 
-    for _ in range(10):
-        @when()
-        def _():
-            assert notice_read("foo") == 24
-            assert notice_read("bar") == 42
+    wait()
 
+    def check_for_value(value):
+        assert value == 9
+
+    notice_changed("count", check_for_value)
     wait()
 
 
 def test_not_immutable():
-    notice_register(["foo"])
-
     try:
-        notice_exchange("foo", [])
+        notice_write("foo", [])
     except ValueError:
         pass
     else:
         raise AssertionError("Expected ValueError.")
 
 
-def test_exists():
-    notice_register(["foo"])
-
-    try:
-        notice_read("bar")
-    except KeyError:
-        pass
-    else:
-        raise AssertionError("Expected KeyError.")
-
-    try:
-        notice_exchange("bar", 42)
-    except KeyError:
-        pass
-    else:
-        raise AssertionError("Expected KeyError.")
-
-    try:
-        notice_compare_exchange("bar", 42, 0)
-    except KeyError:
-        pass
-    else:
-        raise AssertionError("Expected KeyError.")
-
-
 def test_write_once():
-    notice_register(["foo"])
-
+    notice_clear()
     count = 0
 
     event = Event()
@@ -130,13 +105,20 @@ def test_write_once():
 
         @when(r)
         def _(r):
+            def callback(old, _):
+                if old is None:
+                    @when(output)
+                    def _():
+                        output.callback()
+
+                    return True
+                else:
+                    return False
+
             sleep(random.random())
-            if notice_exchange("foo", r.i) is None:
-                @when(output)
-                def _():
-                    output.callback()
+            notice_write("foo", r.i, callback)
 
     wait()
 
-    event.wait()
+    event.wait(2)
     assert count == 1

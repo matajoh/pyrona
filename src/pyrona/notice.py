@@ -1,169 +1,87 @@
 """Implementation of a concurrent-safe notice system."""
 
-from threading import Event, Lock
-from typing import Any, List, Mapping
+from threading import current_thread
+from typing import Any, Callable
 
-from .core import is_imm
-
-
-class Notice:
-    """A notice is a many-reader, one-writer concurrency primitive.
-
-    In this demonstrator, the notice is a simple wrapper around a threading.Event.
-    However, with the use of atomics it can be made lock-free.
-    """
-
-    def __init__(self):
-        """Initialize the notice."""
-        self.lock = Lock()
-        self.event = Event()
-        self.event.set()
-        self.value = None
-
-    def read(self) -> Any:
-        """Read the value of the notice.
-
-        This will only block if the notice is actively being written to.
-        """
-        self.event.wait()
-        return self.value
-
-    def exchange(self, value: Any) -> Any:
-        """Write a value to the notice.
-
-        This will block any readers until the value is read.
-
-        Args:
-            value: The value to write to the notice. Must be immutable.
-        """
-        if not is_imm(value):
-            raise ValueError("Value must be immutable.")
-
-        with self.lock:
-            prev = self.value
-            self.event.clear()
-            self.value = value
-            self.event.set()
-            return prev
-
-    def compare_exchange(self, value: Any, comparand: Any) -> Any:
-        """Compare and exchange the value of the notice.
-
-        This will only block if the notice is actively being written to.
-        The exchange will only occur if the value is equal to the comparand.
-
-        Args:
-            value: The new value to write to the notice. Must be immutable.
-            comparand: The value to compare against.
-
-        Returns:
-            The previous value of the notice.
-        """
-        if not is_imm(value):
-            raise ValueError("Value must be immutable.")
-
-        with self.lock:
-            if self.value == comparand:
-                prev = self.value
-                self.event.clear()
-                self.value = value
-                self.event.set()
-                return prev
-
-            return self.value
+from .core import is_imm, Region
+from .when import when
 
 
-class NoticeBoard:
-    """A notice board is a collection of notices."""
+current_nb = {}
+notice = Region("__notice__")
+with notice:
+    notice.callbacks = {}
 
-    def __init__(self, names: List[str]):
-        """Initialize the notice board.
-
-        Args:
-            names: A list of names for the notices.
-        """
-        self.notices: Mapping[str, Notice] = {name: Notice() for name in names}
-
-    def read(self, key: str) -> Any:
-        """Read the value of a notice.
-
-        Args:
-            key: The name of the notice to read.
-
-        Returns:
-            The value of the notice.
-        """
-        if key not in self.notices:
-            raise KeyError(f"Notice '{key}' not found.")
-
-        return self.notices[key].read()
-
-    def exchange(self, key: str, value: Any):
-        """Write a value to a notice.
-
-        Args:
-            key: The name of the notice to write to.
-            value: The value to write to the notice. Must be immutable.
-        """
-        if key not in self.notices:
-            raise KeyError(f"Notice '{key}' not found.")
-
-        return self.notices[key].exchange(value)
-
-    def compare_exchange(self, key: str, value: Any, comparand: Any) -> Any:
-        """Compare and exchange the value of a notice.
-
-        Args:
-            key: The name of the notice to write to.
-            value: The new value to write to the notice. Must be immutable.
-            comparand: The value to compare against.
-
-        Returns:
-            The previous value of the notice.
-        """
-        if key not in self.notices:
-            raise KeyError(f"Notice '{key}' not found.")
-
-        return self.notices[key].compare_exchange(value, comparand)
-
-
-noticeboard = None
-
-
-def notice_register(names: List[str]):
-    """Register a list of notice names.
-
-    Args:
-        names: A list of names for the notices.
-    """
-    global noticeboard
-    noticeboard = NoticeBoard(names)
+notice.make_shareable()
 
 
 def notice_read(key: str) -> Any:
     """Read the value of a notice."""
-    return noticeboard.read(key)
+    thread = current_thread()
+    if not hasattr(thread, "noticeboard"):
+        thread.noticeboard = current_nb.copy()
+
+    return thread.noticeboard.get(key, None)
 
 
-def notice_exchange(key: str, value: Any) -> Any:
+def notice_changed(key: str, callback: Callable[[Any], None]):
+    """Ask to be notified when the noticeboard next changes."""
+    cb = Region()
+    with cb:
+        cb.key = key
+        cb.callback = callback
+
+    cb.make_shareable()
+
+    @when(notice, cb)
+    def _():
+        if cb.key not in notice.callbacks:
+            notice.callbacks[cb.key] = []
+
+        notice.callbacks[cb.key].append(cb)
+
+
+def notice_write(key: str, value: Any, condition: Callable[[Any, Any], bool] = None):
     """Write a value to a notice.
 
     Args:
         key: The name of the notice to write to.
         value: The value to write to the notice. Must be immutable.
+        condition: A condition that must be met for the write to occur.
     """
-    return noticeboard.exchange(key, value)
+    if not is_imm(value):
+        raise ValueError("Value must be immutable.")
+
+    r = Region()
+    with r:
+        r.key = key
+        r.value = value
+        r.condition = condition
+
+    r.make_shareable()
+
+    @when(r, notice)
+    def _():
+        global current_nb
+        if r.condition is not None:
+            old_value = current_nb.get(r.key, None)
+            if not r.condition(old_value, r.value):
+                return
+
+        current_nb = current_nb.copy()
+        current_nb[r.key] = r.value
+        if r.key in notice.callbacks:
+            for cb in notice.callbacks[r.key]:
+                @when(cb, r)
+                def _(cb, r):
+                    cb.callback(r.value)
+
+            del notice.callbacks[r.key]
 
 
-def notice_compare_exchange(key: str, value: Any, comparand: Any) -> Any:
-    """Compare and exchange the value of a notice.
-
-    Args:
-        key: The name of the notice to write to.
-        value: The new value to write to the notice. Must be immutable.
-        comparand: The value to compare against.
-
-    Returns:
-        The previous value of the notice.
-    """
-    return noticeboard.notices[key].compare_exchange(value, comparand)
+def notice_clear():
+    """Clear the current notice board."""
+    @when(notice)
+    def _():
+        global current_nb
+        current_nb = {}
