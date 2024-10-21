@@ -91,13 +91,13 @@ class _Behavior:
         for r in self.requests:
             r.finish_enqueue()
 
+        # Prevent runtime exiting until this has run.
+        _terminator.increment()
+
         # Resolve the additional request. [See comment in the Constructor]
         # All the cowns may already be resolved, in which case, this will
         # schedule the task.
         self.resolve_one()
-
-        # Prevent runtime exiting until this has run.
-        _terminator.increment()
 
     def __call__(self):
         # Run body.
@@ -196,8 +196,6 @@ class _Request:
 
 _terminator = _Terminator()
 
-_behaviors : List[_Behavior] = []
-
 _exceptions = Queue()
 
 
@@ -235,7 +233,6 @@ def when(*regions: Region):
         cowns = [_Cown(r) for r in regions]
         behavior = _Behavior(lambda: _safe_run(when_), *cowns)
         behavior.schedule()
-        _behaviors.append(behavior)
 
         return when_
 
@@ -244,9 +241,15 @@ def when(*regions: Region):
 
 def wait():
     """Waits for all behaviors to execute."""
+    # NB for testing purposes this method also resets the system
+    global _terminator
+    global _exceptions
+
     _terminator.wait()
+    _terminator = _Terminator()
     try:
         ex = _exceptions.get(block=False)
+        _exceptions = Queue()
     except Empty:
         pass
     else:

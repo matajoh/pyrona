@@ -10,12 +10,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Use Python 3.8
-        uses: actions/setup-python@v4
+      - name: Use Python 3.11
+        uses: actions/setup-python@v5
         with:
-          python-version: 3.8
+          python-version: 3.11
 
       - name: Install the package
         run: pip install -e .[linting]
@@ -26,25 +26,24 @@ jobs:
   linux:
     strategy:
       matrix:
-        python_version: ["3.8", "3.9", "3.10", "3.11"]
+        python_version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
 
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Use Python ${{matrix.python_version}}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{matrix.python_version}}
-          architecture: x64
 
       - name: Install the package
         run: pip install -e .[test]
 
       - name: Run tests
-        uses: pavelzw/pytest-action@v1
+        uses: pavelzw/pytest-action@v2
         with:
           verbose: true
           job_summary: true
@@ -53,25 +52,24 @@ jobs:
   windows:
     strategy:
       matrix:
-        python_version: ["3.8", "3.9", "3.10", "3.11"]
+        python_version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
 
     runs-on: windows-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Use Python ${{matrix.python_version}}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{matrix.python_version}}
-          architecture: x64
 
       - name: Install the package
         run: pip install -e .[test]
 
       - name: Run tests
-        uses: pavelzw/pytest-action@v1
+        uses: pavelzw/pytest-action@v2
         with:
           verbose: true
           job_summary: true
@@ -80,19 +78,18 @@ jobs:
   macos:
     strategy:
       matrix:
-        python_version: ["3.8", "3.9", "3.10", "3.11"]
+        python_version: ["3.10", "3.11", "3.12"]
 
     runs-on: macos-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Use Python ${{matrix.python_version}}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{matrix.python_version}}
-          architecture: x64
 
       - name: Install the package
         run: pip install -e .[test]
